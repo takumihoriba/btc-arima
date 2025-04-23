@@ -16,6 +16,7 @@ library(ggplot2)
 library(tidyverse)
 library(dplyr)
 library(rugarch)
+library(MLmetrics)
 
 ```
 
@@ -370,29 +371,57 @@ evaluate_model <- function(model_type = c("ARIMA", "ETS", "GARCH"),
     
     garch_fc <- ugarchforecast(best_garch, n.ahead = test_size)
     test_fc <- fitted(garch_fc)
-    # test_fc <- fitted(ugarchforecast(fit, n.ahead = test_size))
   }
 
   # Price predictions
   predicted_train_prices <- reconstruct_prices(train_pred, coredata(full_price_series)[length(full_price_series) - test_size - length(train_pred)])
   predicted_test_prices  <- reconstruct_prices(test_fc, last_price)
+  
+  train_class_pred <- ifelse(train_pred >= 0, 1, 0)
+  test_class_pred  <- ifelse(test_fc  >= 0, 1, 0)
+  
+  train_class_actual <- ifelse(train >= 0, 1, 0)
+  test_class_actual  <- ifelse(test  >= 0, 1, 0)
+  
+  
+  train_acc = Accuracy(train_class_pred, train_class_actual)
+  test_acc  = Accuracy(test_class_actual, test_class_pred)
+  
+  train_f1 = F1_Score(train_class_actual, train_class_pred)
+  test_f1  = F1_Score(test_class_actual, test_class_pred)
+  
+  train_recall = Recall(train_class_actual, train_class_pred)
+  test_recall  = Recall(test_class_actual, test_class_pred)
+  
+  train_precision = Precision(train_class_actual, train_class_pred)
+  test_precision  = Precision(test_class_actual, test_class_pred)
 
-  # Actual prices for training range (approximate)
+
   actual_train_prices <- coredata(full_price_series)[(length(full_price_series) - test_size - length(train_pred) + 1):(length(full_price_series) - test_size)]
 
-  # Compute metrics
+
   train_mae  <- mean(abs(actual_train_prices - predicted_train_prices))
   train_rmse <- sqrt(mean((actual_train_prices - predicted_train_prices)^2))
   test_mae   <- mean(abs(true_prices - predicted_test_prices))
   test_rmse  <- sqrt(mean((true_prices - predicted_test_prices)^2))
+  
+  
 
-  # Return named result
   data.frame(
     Model = model_type,
-    Train_MAE = round(train_mae, 2),
-    Test_MAE = round(test_mae, 2),
-    Train_RMSE = round(train_rmse, 2),
-    Test_RMSE = round(test_rmse, 2)
+    Train_MAE = round(train_mae, 4),
+    Test_MAE = round(test_mae, 4),
+    Train_RMSE = round(train_rmse, 4),
+    Test_RMSE = round(test_rmse, 4),
+    Train_Accuracy = round(train_acc, 4),
+    Test_Accuracy = round(test_acc, 4),
+    Train_F1 = round(train_f1, 4),
+    Test_F1 = round(test_f1, 4),
+    Train_Recall = round(train_recall, 4),
+    Test_Recall = round(test_recall, 4),
+    Train_Precision = round(train_precision, 4),
+    Test_Precision = round(test_precision, 4)
+    
   )
 }
 
@@ -417,6 +446,9 @@ results
 
 
 ## Classification
+Done in above.
+
+
 
 
 
