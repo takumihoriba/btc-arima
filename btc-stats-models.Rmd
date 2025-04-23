@@ -409,14 +409,14 @@ results <- rbind(
   evaluate_model("GARCH", train, test, x, test_size, best_garch = best_garch)
 )
 results
+
+# write.csv(results, file = "figs/forecast_results_classical_methods.csv", row.names = FALSE)
 ```
 
 
 
 
 ## Classification
-
-
 
 
 
