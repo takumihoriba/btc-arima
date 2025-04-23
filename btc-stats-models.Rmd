@@ -1,0 +1,315 @@
+---
+title: "btc-stats-models"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#if you do not have the package, type install.packages("name_of_the_package")
+library(knitr)
+library(tseries)
+library(zoo)
+library(forecast)
+library(ggplot2)
+library(tidyverse)
+library(dplyr)
+library(rugarch)
+
+```
+
+```{r}
+btc_df <- read_csv("data/BTC-Daily.csv")
+
+x = zoo(btc_df$close, as.Date(btc_df$date))
+
+log_returns = diff(log(x))
+
+head(log_returns)
+tail(log_returns)
+
+plot(log_returns)
+acf(coredata(log_returns), main="Sample Autocorrelation of Daily Log-Returns")
+```
+
+```{r}
+plot(coredata(x))
+```
+
+```{r}
+abs_lrs <- abs(log_returns)
+plot(abs_lrs)
+acf(coredata(abs_lrs), main="Sample Autocorrelation of Daily Absolute Log-Returns")
+
+```
+
+```{r}
+qqnorm(log_returns, main="Q-Q Plot for Daily Log-Returns")
+qqline(log_returns, col="red")
+
+```
+
+```{r}
+qqnorm(abs_lrs, main="Q-Q Plot for Daily Log-Returns")
+qqline(abs_lrs, col="red")
+
+```
+
+Split into train, test
+```{r}
+n <- length(log_returns)
+
+# Split index
+test_size <- 30
+train <- log_returns[1:(n - test_size)]
+test  <- log_returns[(n - test_size + 1):n]
+
+```
+
+Arima model
+```{r}
+fit_auto <- auto.arima(train)
+summary(fit_auto)
+
+forecast_auto <- forecast(fit_auto, h = 30)
+
+```
+
+```{r}
+library(forecast)
+
+fit <- auto.arima(train)
+fc  <- forecast(fit, h = test_size)
+
+accuracy(fc, test)
+```
+
+metrics in ordinary format (not log)
+
+```{r}
+# Get the last known price before forecast starts
+last_price <- coredata(x)[length(x) - test_size]
+
+# Convert forecasted log-returns to prices
+predicted_prices <- numeric(test_size)
+predicted_prices[1] <- last_price * exp(fc$mean[1])
+
+for (i in 2:test_size) {
+  predicted_prices[i] <- predicted_prices[i - 1] * exp(fc$mean[i])
+}
+
+# Get true prices to compare against
+true_prices <- coredata(x)[(length(x) - test_size + 1):(length(x))]
+
+# Evaluate metrics manually
+mae  <- mean(abs(true_prices - predicted_prices))
+rmse <- sqrt(mean((true_prices - predicted_prices)^2))
+
+cat("MAE: ", round(mae, 4), "\n")
+cat("RMSE:", round(rmse, 4), "\n")
+```
+
+```{r}
+plot(index(x)[(length(x) - test_size + 1):length(x)], true_prices,
+     type = "l", col = "black", ylab = "Price", xlab = "Date", main = "Forecast vs Actual")
+lines(index(x)[(length(x) - test_size + 1):length(x)], predicted_prices, col = "red")
+legend("topright", legend = c("Actual", "Forecast"), col = c("black", "red"), lty = 1)
+
+```
+
+# Exponential smoothing
+```{r}
+
+library(forecast)
+fit_ets <- ets(train) # train is already in log scale.
+fc_ets <- forecast(fit_ets, h = test_size)
+
+accuracy(fc_ets)
+
+```
+
+```{r}
+actual_log_returns <- test
+forecasted_log_returns <- fc_ets$mean
+
+# Plot
+plot(actual_log_returns, type = "l", col = "black",
+     ylab = "Log-Return", xlab = "Time", main = "Forecasted vs Actual Log-Returns")
+lines(forecasted_log_returns, col = "blue")
+legend("topright", legend = c("Actual", "Forecast"), col = c("black", "blue"), lty = 1)
+
+```
+
+
+
+```{r}
+last_price <- coredata(x)[length(x) - test_size]  # last actual price before forecast
+
+# Reconstruct price forecast
+predicted_prices_ets <- numeric(test_size)
+predicted_prices_ets[1] <- last_price * exp(fc_ets$mean[1])
+
+for (i in 2:test_size) {
+  predicted_prices_ets[i] <- predicted_prices_ets[i - 1] * exp(fc_ets$mean[i])
+}
+
+```
+
+```{r}
+true_prices <- coredata(x)[(length(x) - test_size + 1):(length(x))]
+
+# Metrics
+mae_ets  <- mean(abs(true_prices - predicted_prices_ets))
+rmse_ets <- sqrt(mean((true_prices - predicted_prices_ets)^2))
+
+cat("ETS Forecast\n")
+cat("MAE: ", round(mae_ets, 4), "\n")
+cat("RMSE:", round(rmse_ets, 4), "\n")
+
+```
+
+ plot
+```{r}
+
+plot(index(x)[(length(x) - test_size + 1):length(x)], true_prices,
+     type = "l", col = "black", ylab = "Price", xlab = "Date", main = "ETS Forecast vs Actual")
+lines(index(x)[(length(x) - test_size + 1):length(x)], predicted_prices_ets, col = "blue")
+legend("topright", legend = c("Actual", "ETS Forecast"), col = c("black", "blue"), lty = 1)
+
+```
+
+
+ETS on just price
+```{r}
+price_ts <- ts(coredata(x)[1:(length(x) - test_size)], frequency = 7)  # weekly freq (adjust as needed)
+
+fit_ets_price <- ets(price_ts)
+fc_price <- forecast(fit_ets_price, h = test_size)
+
+predicted_prices <- fc_price$mean
+true_prices <- coredata(x)[(length(x) - test_size + 1):length(x)]
+
+autoplot(fc_price)
+
+mae  <- mean(abs(true_prices - predicted_prices))
+rmse <- sqrt(mean((true_prices - predicted_prices)^2))
+
+mae
+rmse
+
+accuracy(fc_price, true_prices)
+```
+
+
+# GARCH
+
+```{r}
+library(rugarch)
+
+best_aic <- Inf
+best_model <- NULL
+best_spec <- 
+  
+train_vec <- as.numeric(train)
+
+for (p in 0:2) {
+  for (q in 0:2) {
+    for (r in 1:2) {
+      for (s in 1:2) {
+        cat(sprintf("Trying ARMA(%d,%d)-GARCH(%d,%d)\n", p, q, r, s))
+        
+        spec <- ugarchspec(
+          mean.model = list(armaOrder = c(p, q), include.mean = TRUE),
+          variance.model = list(garchOrder = c(r, s)),
+          distribution.model = "norm"  # Or "std" for Student-t
+        )
+        
+        tryCatch({
+          fit <- ugarchfit(spec, data = train_vec, solver = "hybrid")
+          aic <- infocriteria(fit)[1]  # AIC
+          
+          if (aic < best_aic) {
+            best_aic <- aic
+            best_model <- fit
+            best_spec <- spec
+          }
+        }, error = function(e) {
+          cat("Model failed: ", e$message, "\n")
+        })
+      }
+    }
+  }
+}
+
+cat("\nBest model AIC:", best_aic, "\n")
+show(best_model)
+
+best_garch = best_model
+
+```
+
+```{r}
+# garch_spec <- ugarchspec(
+#   mean.model     = list(armaOrder = c(1, 1), include.mean = TRUE),
+#   variance.model = list(garchOrder = c(1, 1)),
+#   distribution.model = "norm"  # you can change to "std" for Student-t
+# )
+# 
+# 
+# # train is your zoo object of log-returns, from earlier
+# train_vec <- as.numeric(train)  # convert to numeric vector
+# 
+# garch_fit <- ugarchfit(spec = garch_spec, data = train_vec)
+# show(garch_fit)
+
+```
+
+```{r}
+# use best one
+garch_fc <- ugarchforecast(best_garch, n.ahead = test_size)
+
+# Extract forecasted log-returns
+fc_log_returns_garch <- fitted(garch_fc)
+
+
+last_price <- coredata(x)[length(x) - test_size]
+
+# Reconstruct forecasted prices from log-returns
+predicted_prices_garch <- numeric(test_size)
+predicted_prices_garch[1] <- last_price * exp(fc_log_returns_garch[1])
+
+for (i in 2:test_size) {
+  predicted_prices_garch[i] <- predicted_prices_garch[i - 1] * exp(fc_log_returns_garch[i])
+}
+
+
+true_prices <- coredata(x)[(length(x) - test_size + 1):length(x)]
+
+mae_garch  <- mean(abs(true_prices - predicted_prices_garch))
+rmse_garch <- sqrt(mean((true_prices - predicted_prices_garch)^2))
+
+cat("GARCH Forecast\n")
+cat("MAE : ", round(mae_garch, 4), "\n")
+cat("RMSE: ", round(rmse_garch, 4), "\n")
+
+
+```
+
+```{r}
+plot(fc_log_returns_garch)
+```
+
+plot
+```{r}
+plot(index(x)[(length(x) - test_size + 1):length(x)], true_prices,
+     type = "l", col = "black", ylab = "Price", xlab = "Date", main = "GARCH Forecast vs Actual")
+lines(index(x)[(length(x) - test_size + 1):length(x)], predicted_prices_garch, col = "darkgreen")
+legend("topleft", legend = c("Actual", "GARCH Forecast"), col = c("black", "darkgreen"), lty = 1)
+
+```
+
+
+
+
+
+
+
