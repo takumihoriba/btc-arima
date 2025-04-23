@@ -65,7 +65,7 @@ test  <- log_returns[(n - test_size + 1):n]
 
 ```
 
-Arima model
+# Arima model
 ```{r}
 fit_auto <- auto.arima(train)
 summary(fit_auto)
@@ -73,6 +73,15 @@ summary(fit_auto)
 forecast_auto <- forecast(fit_auto, h = 30)
 
 ```
+
+ARIMA(0,0,1) with non-zero mean 
+
+Coefficients:
+          ma1    mean
+      -0.0513  0.0018
+s.e.   0.0192  0.0007
+
+
 
 ```{r}
 library(forecast)
@@ -106,6 +115,8 @@ rmse <- sqrt(mean((true_prices - predicted_prices)^2))
 
 cat("MAE: ", round(mae, 4), "\n")
 cat("RMSE:", round(rmse, 4), "\n")
+
+arima_pred_prices = predicted_prices
 ```
 
 ```{r}
@@ -188,6 +199,8 @@ fc_price <- forecast(fit_ets_price, h = test_size)
 predicted_prices <- fc_price$mean
 true_prices <- coredata(x)[(length(x) - test_size + 1):length(x)]
 
+ets_raw_pred_price = predicted_prices
+
 autoplot(fc_price)
 
 mae  <- mean(abs(true_prices - predicted_prices))
@@ -246,6 +259,9 @@ show(best_model)
 best_garch = best_model
 
 ```
+
+The model is
+Conditional Variance Dynamics, GARCH Model	: sGARCH(1,1), Mean Model	:ARFIMA(2,0,2), Distribution	: norm 
 
 ```{r}
 # garch_spec <- ugarchspec(
@@ -306,6 +322,98 @@ lines(index(x)[(length(x) - test_size + 1):length(x)], predicted_prices_garch, c
 legend("topleft", legend = c("Actual", "GARCH Forecast"), col = c("black", "darkgreen"), lty = 1)
 
 ```
+
+# Summary
+## Regression (Forecasting)
+```{r}
+evaluate_model <- function(model_type = c("ARIMA", "ETS", "GARCH"),
+                           train, test, full_price_series, test_size = 30, best_garch) {
+
+  model_type <- match.arg(model_type)
+
+  # Reconstruct price from forecasted log-returns
+  reconstruct_prices <- function(log_returns, last_price) {
+    pred <- numeric(length(log_returns))
+    pred[1] <- last_price * exp(log_returns[1])
+    for (i in 2:length(log_returns)) {
+      pred[i] <- pred[i - 1] * exp(log_returns[i])
+    }
+    pred
+  }
+
+  last_price <- coredata(full_price_series)[length(full_price_series) - test_size]
+  true_prices <- coredata(full_price_series)[(length(full_price_series) - test_size + 1):length(full_price_series)]
+
+  if (model_type == "ARIMA") {
+    fit <- auto.arima(train)
+    train_pred <- fitted(fit)
+    test_fc <- forecast(fit, h = test_size)$mean
+
+  } else if (model_type == "ETS") {
+    fit <- ets(train)
+    train_pred <- fitted(fit)
+    test_fc <- forecast(fit, h = test_size)$mean
+
+  } else if (model_type == "GARCH") {
+    
+    
+    # garch_spec <- ugarchspec(
+    #   mean.model = list(armaOrder = c(p, q), include.mean = TRUE),
+    #   variance.model = list(garchOrder = c(r, s)),
+    #   distribution.model = dist
+    # )
+    # fit <- ugarchfit(best_garch, as.numeric(train))
+    # train_pred <- fitted(fit)
+    train_pred <- fitted(best_garch)
+    
+    garch_fc <- ugarchforecast(best_garch, n.ahead = test_size)
+    test_fc <- fitted(garch_fc)
+    # test_fc <- fitted(ugarchforecast(fit, n.ahead = test_size))
+  }
+
+  # Price predictions
+  predicted_train_prices <- reconstruct_prices(train_pred, coredata(full_price_series)[length(full_price_series) - test_size - length(train_pred)])
+  predicted_test_prices  <- reconstruct_prices(test_fc, last_price)
+
+  # Actual prices for training range (approximate)
+  actual_train_prices <- coredata(full_price_series)[(length(full_price_series) - test_size - length(train_pred) + 1):(length(full_price_series) - test_size)]
+
+  # Compute metrics
+  train_mae  <- mean(abs(actual_train_prices - predicted_train_prices))
+  train_rmse <- sqrt(mean((actual_train_prices - predicted_train_prices)^2))
+  test_mae   <- mean(abs(true_prices - predicted_test_prices))
+  test_rmse  <- sqrt(mean((true_prices - predicted_test_prices)^2))
+
+  # Return named result
+  data.frame(
+    Model = model_type,
+    Train_MAE = round(train_mae, 2),
+    Test_MAE = round(test_mae, 2),
+    Train_RMSE = round(train_rmse, 2),
+    Test_RMSE = round(test_rmse, 2)
+  )
+}
+
+```
+
+```{r}
+evaluate_model(model = "GARCH", train = train, test = test, full_price_series = x, best_garch = best_garch)
+```
+
+```{r}
+results <- rbind(
+  evaluate_model("ARIMA", train, test, x, test_size),
+  evaluate_model("ETS", train, test, x, test_size),
+  evaluate_model("GARCH", train, test, x, test_size, best_garch = best_garch)
+)
+results
+```
+
+
+
+
+## Classification
+
 
 
 
